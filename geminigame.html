@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>2026秘書節-圓夢必成</title>
+    <style>
+        :root { --accent: #ea580c; }
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        
+        body, html { 
+            width: 100%; height: 100%; height: 100dvh; 
+            overflow: hidden; background-color: #000; 
+            font-family: -apple-system, system-ui, "Microsoft JhengHei", "Arial Black", sans-serif; 
+        }
+        
+        #game-container { 
+            position: relative; width: 100%; height: 100%; height: 100dvh; 
+            overflow: hidden; background: #000; 
+        }
+        
+        canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+        
+        /* 轉向提示 */
+        #orientation-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100dvh;
+            background: #fff; z-index: 2000; display: none;
+            flex-direction: column; justify-content: center; align-items: center; text-align: center;
+            padding: 20px;
+        }
+        @media screen and (orientation: portrait) and (max-width: 1024px) {
+            #orientation-overlay { display: flex; }
+        }
+
+        /* 遊戲選單 UI */
+        #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); z-index: 100; text-align: center; }
+        #ui-content { background: white; padding: 30px 40px; border-radius: 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); border: 8px solid var(--accent); max-width: 550px; width: 90%; }
+        .hidden { display: none !important; }
+        
+        h1 { color: var(--accent); font-size: 1.8rem; margin-bottom: 12px; font-weight: 900; line-height: 1.4; }
+        p { font-size: 1.4rem; color: #1e293b; margin-bottom: 25px; line-height: 1.5; font-weight: 900; }
+        
+        .btn-start { padding: 18px 60px; font-size: 1.7rem; background: linear-gradient(135deg, #f97316, #ef4444); color: white; border: none; border-radius: 60px; cursor: pointer; font-weight: bold; box-shadow: 0 10px 30px rgba(239, 68, 68, 0.4); width: 100%; max-width: 320px; transition: transform 0.1s; }
+        .btn-start:active { transform: scale(0.95); }
+        
+        #score-board { position: absolute; top: 20px; left: 20px; font-size: 22px; font-weight: 900; color: #fff; background: var(--accent); padding: 8px 20px; border-radius: 50px; border: 3px solid #fff; z-index: 50; pointer-events: none; }
+        #bgm-toggle { position: absolute; top: 20px; right: 20px; background: #fff; padding: 10px 18px; border-radius: 30px; font-size: 14px; font-weight: bold; border: 2px solid var(--accent); z-index: 150; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        
+        .bonus-text { position: absolute; font-weight: 900; font-size: 44px; text-shadow: 3px 3px 0 #fff; pointer-events: none; animation: floatUp 0.8s ease-out forwards; z-index: 80; color: #fbbf24; }
+        @keyframes floatUp { 0% { transform: translateY(0) scale(0.8); opacity: 1; } 100% { transform: translateY(-180px) scale(1.6); opacity: 0; } }
+    </style>
+</head>
+<body onclick="unlockAudio()" ontouchstart="unlockAudio()">
+
+<div id="orientation-overlay">
+    <div style="font-size: 60px; margin-bottom: 20px;">🔄</div>
+    <h2 style="color: var(--accent); font-size: 2.2rem; margin-bottom: 15px;">請將手機轉為橫向</h2>
+    <p style="font-size: 1.1rem; color: #64748b; font-weight: bold;">點擊螢幕開啟音樂與冒險！</p>
+</div>
+
+<div id="game-container">
+    <div id="score-board">SCORE: 0</div>
+    <button id="bgm-toggle">🔊 音樂: 開</button>
+    
+    <div id="ui-overlay">
+        <div id="ui-content">
+            <h1 id="ui-title">2026 圓夢秘書節</h1>
+            <div id="ui-score" style="font-size:1.8rem; margin:10px 0; font-weight:bold;" class="hidden">最後得分: 0</div>
+            <p id="ui-desc">圓夢必成！</p>
+            <div class="btn-group">
+                <button id="start-btn" class="btn-start" onclick="startGame()">開始挑戰</button>
+            </div>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+/**
+ * 2026秘書節 - 圓夢必成 視覺與音樂最終修復版
+ * 視覺：長髮馬尾秘書、白衫男同事(含手)、梯形掃把、亮藍辦公椅、貓咪(腳部連接)
+ * 音樂：第一秒觸碰即解鎖背景音樂
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+const scoreBoard = document.getElementById('score-board');
+const uiOverlay = document.getElementById('ui-overlay');
+const uiTitle = document.getElementById('ui-title');
+const uiScore = document.getElementById('ui-score');
+const startBtn = document.getElementById('start-btn');
+const bgmToggle = document.getElementById('bgm-toggle');
+const container = document.getElementById('game-container');
+
+// --- 遊戲引擎核心變數 ---
+let width, height, score = 0, baseSpeed = 7.15, gameSpeed = 7.15, frameCount = 0; 
+let obstacles = [], heartEffects = [], cityBuildings = [];
+let isRunning = false, isWin = false, warmupTime = 0, sceneProtection = 0; 
+let lastTime = 0, nextSpawn = 0;
+let currentTheme = 'day', themeCounter = 0;
+const WIN_SCORE = 20000, THEME_INTERVAL = 100;
+
+// --- 音訊系統 ---
+let audioCtx = null, masterGain = null, isMusicOn = true, bgmSequence = 0;
+let audioUnlocked = false;
+const notes = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
+
+function unlockAudio() {
+    if (audioUnlocked) return;
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    audioUnlocked = true;
+}
+
+function initAudio() {
+    if (audioCtx) return;
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = 0.3;
+        masterGain.connect(audioCtx.destination);
+        startBGM();
+    } catch (e) { console.log("音訊啟動失敗"); }
+}
+
+function playTone(f, d, type = 'sine', vol = 0.2) {
+    if (!audioCtx || !isMusicOn) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f, audioCtx.currentTime);
+    g.gain.setValueAtTime(vol, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + d);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + d);
+}
+
+function startBGM() {
+    const tempo = 150;
+    const melody = [2, 4, 6, 7, 6, 4, 2, 0, 4, 6, 9, 7, 6, 4, 2, 0];
+    function playNextNote() {
+        if (isMusicOn && audioCtx) {
+            const idx = melody[bgmSequence % melody.length];
+            const freq = notes[idx % 8] * (idx >= 8 ? 2 : 1);
+            const volume = isRunning ? 0.05 : 0.03;
+            playTone(freq, 0.25, 'triangle', volume);
+        }
+        bgmSequence++;
+        setTimeout(playNextNote, tempo);
+    }
+    playNextNote();
+}
+
+function playCoinSound() {
+    playTone(880, 0.1, 'sine', 0.2);
+    setTimeout(() => playTone(1320, 0.15, 'sine', 0.2), 50);
+}
+
+// --- 繪圖工具 ---
+function drawHeart(x, y, size, color) {
+    ctx.save(); ctx.translate(x, y); ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-size/2, -size/2, -size, size/3, 0, size);
+    ctx.bezierCurveTo(size, size/3, size/2, -size/2, 0, 0);
+    ctx.fill(); ctx.restore();
+}
+
+// --- 角色系統：秘書阿美 (0116 原始版) ---
+const player = {
+    x: 120, y: 0, w: 35, h: 75, vy: 0, g: 0.85, jumpS: -15,
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y);
+        let runCycle = frameCount * 0.15;
+        let bob = Math.abs(Math.cos(runCycle)) * 4; 
+        ctx.fillStyle = "rgba(0,0,0,0.15)"; ctx.beginPath(); ctx.ellipse(20, 80, 20, 5, 0, 0, Math.PI*2); ctx.fill();
+        this.drawBezierLimb(18, 62-bob, Math.sin(runCycle)*32, "#e0c4a8", 22);
+        this.drawBezierLimb(18, 62-bob, -Math.sin(runCycle)*32, "#ffe0bd", 22);
+        ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.moveTo(5, 28-bob); ctx.bezierCurveTo(10, 22-bob, 20, 22-bob, 25, 28-bob); ctx.lineTo(25, 48-bob); ctx.bezierCurveTo(20, 52-bob, 10, 52-bob, 5, 48-bob); ctx.closePath(); ctx.fill(); // 白衣
+        ctx.fillStyle = "#d2b48c"; ctx.beginPath(); ctx.moveTo(5, 48-bob); ctx.lineTo(25, 48-bob); ctx.quadraticCurveTo(30, 62-bob, 25, 65-bob); ctx.lineTo(5, 65-bob); ctx.quadraticCurveTo(0, 62-bob, 5, 48-bob); ctx.fill(); // 卡其裙
+        this.drawBezierLimb(15, 30-bob, Math.cos(runCycle)*42, "#ffe0bd", 25);
+        ctx.fillStyle = "#ffe0bd"; ctx.beginPath(); ctx.arc(15, 16 - bob, 17, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#2d3436"; ctx.beginPath(); ctx.arc(12, 12 - bob, 19, Math.PI * 0.7, Math.PI * 2.3); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(0, 14 - bob, 12, 28, 5); ctx.fill();
+        ctx.restore();
+    },
+    drawBezierLimb(x, y, angle, color, len) {
+        ctx.save(); ctx.translate(x, y); ctx.rotate(angle * Math.PI / 180); 
+        ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(-4, 0); ctx.bezierCurveTo(-6, len/2, -6, len/2, -4, len); ctx.lineTo(4, len); ctx.bezierCurveTo(6, len/2, 6, len/2, 4, 0); ctx.closePath(); ctx.fill(); ctx.restore();
+    },
+    update(dt) { this.y += this.vy * dt; const ground = height - 60; if (this.y + this.h < ground) this.vy += this.g * dt; else { this.y = ground - this.h; this.vy = 0; } },
+    jump() { if (isRunning && !isWin) { this.vy = this.jumpS; playTone(450, 0.1, 'sine'); } }
+};
+
+// --- 風景 ---
+function initBuildings() { cityBuildings = []; const colors = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#a78bfa", "#f472b6", "#fb923c", "#818cf8"]; for(let i=0; i<15; i++) { cityBuildings.push({ x: i * 250, h: 180 + Math.random() * 260, w: 100 + Math.random() * 40, color: colors[i % colors.length] }); } }
+function drawScene(dt) {
+    const themes = { 'day': {sky:["#fce7f3","#fdf2f8"],mts:["#fb7185","#e11d48","#be123c"]}, 'sunrise': {sky:["#f97316","#fef08a"],mts:["#ea580c","#c2410c","#7c2d12"]}, 'night': {sky:["#020617","#0f172a"],mts:["#1e1b4b","#0f172a","#020617"]} };
+    let theme = themes[currentTheme] || themes['day'];
+    let skyGrd = ctx.createLinearGradient(0, 0, 0, height); skyGrd.addColorStop(0, theme.sky[0]); skyGrd.addColorStop(1, theme.sky[1]);
+    ctx.fillStyle = skyGrd; ctx.fillRect(0,0, width, height);
+    drawMountains(theme.mts[2], 0.012, 360, 110); drawMountains(theme.mts[1], 0.022, 290, 90); drawMountains(theme.mts[0], 0.032, 220, 70);
+    cityBuildings.forEach(b => { 
+        b.x -= gameSpeed * 0.15 * dt; if(b.x < -300) b.x = width + 200; ctx.fillStyle = b.color; ctx.fillRect(b.x, height-60-b.h, b.w, b.h);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.4)"; for(let r=0; r<b.h/35-1; r++) { for(let c=0; c<b.w/30-1; c++) { ctx.fillRect(b.x + 12 + c*25, height-60-b.h + 20 + r*35, 12, 15); } }
+    });
+    ctx.fillStyle = "#1e293b"; ctx.fillRect(0, height-60, width, 60);
+}
+function drawMountains(color, speed, heightVal, amp) {
+    ctx.save(); let off = (frameCount * speed * gameSpeed) % 2500; ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(-400, height);
+    for(let x = -2500; x <= width + 2500; x += 500) { let cy = height - heightVal - Math.abs(Math.sin((x + off) * 0.0012)) * amp; ctx.bezierCurveTo(x-off + 150, cy - amp, x-off + 350, cy - amp, x-off + 500, cy); }
+    ctx.lineTo(width + 400, height); ctx.fill(); ctx.restore();
+}
+
+// --- 障礙物 ---
+class Obs {
+    constructor(startX) {
+        const types = [
+            {n:'椅',w:70,h:100,p:'g'}, {n:'檔',w:85,h:95,p:'g'}, {n:'車',w:160,h:105,p:'g'}, {n:'同',w:85,h:145,p:'g'}, {n:'貓',w:85,h:75,p:'g'}, {n:'印',w:115,h:120,p:'g'}, {n:'掃',w:60,h:110,p:'g'}, {n:'桶',w:75,h:75,p:'g'},
+            {n:'雞',w:50,h:45,p:'g',b:true,v:500}, {n:'咖',w:65,h:80,p:'g',b:true,v:500}, {n:'堡',w:85,h:80,p:'g',b:true,v:500}, {n:'火',w:120,h:200,p:'a',b:true,v:500}
+        ];
+        let rand = Math.random();
+        let t;
+        if(rand < 0.16) t = types[11]; else if(rand < 0.35) t = types[Math.floor(Math.random()*3)+8]; else t = types[Math.floor(Math.random()*8)];
+        this.n=t.n; this.w=t.w; this.h=t.h; this.isB=!!t.b; this.val=t.v||0; this.hasC=false; 
+        this.x = startX || width + 600; this.y=(t.p==='g') ? height-60-this.h : height-(380+Math.random()*120);
+    }
+    update(dt) { this.x -= (gameSpeed * 0.75) * dt; }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y);
+        if(this.n==='同') {
+            // 男同仁：白襯衫、膚色小手、小皮鞋
+            ctx.fillStyle="#ffe0bd"; ctx.beginPath(); ctx.arc(42, 35, 25, 0, Math.PI*2); ctx.fill(); 
+            ctx.fillStyle="#ffffff"; ctx.beginPath(); ctx.roundRect(17, 55, 50, 55, 8); ctx.fill(); 
+            ctx.fillStyle="#059669"; ctx.beginPath(); ctx.moveTo(37, 55); ctx.bezierCurveTo(34, 65, 27, 65, 27, 55); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(47, 55); ctx.bezierCurveTo(50, 65, 57, 65, 57, 55); ctx.fill();
+            ctx.fillStyle="#ffe0bd"; ctx.beginPath(); ctx.roundRect(10, 65, 10, 22, 5); ctx.fill(); // 左手
+            ctx.fillStyle="#ffe0bd"; ctx.beginPath(); ctx.roundRect(63, 65, 10, 22, 5); ctx.fill(); // 右手
+            ctx.fillStyle="#d2b48c"; ctx.fillRect(20, 110, 18, 25); ctx.fillRect(46, 110, 18, 25); // 褲
+            ctx.fillStyle="#000"; ctx.fillRect(20, 135, 18, 10); ctx.fillRect(46, 135, 18, 10); // 鞋
+            ctx.fillStyle="#2d3436"; ctx.beginPath(); ctx.arc(42, 35, 28, Math.PI, 0); ctx.fill(); 
+            ctx.beginPath(); ctx.moveTo(15, 35); ctx.bezierCurveTo(22, 18, 62, 18, 69, 35); ctx.fill(); 
+            ctx.fillStyle="#000"; ctx.beginPath(); ctx.arc(34, 38, 2.5, 0, Math.PI*2); ctx.arc(50, 38, 2.5, 0, Math.PI*2); ctx.fill(); 
+        } else if(this.n==='掃') {
+            ctx.fillStyle="#78350f"; ctx.fillRect(25, 0, 10, 70); 
+            ctx.fillStyle="#fde047"; ctx.beginPath(); 
+            ctx.moveTo(20, 70); ctx.lineTo(40, 70); ctx.lineTo(55, 110); ctx.lineTo(5, 110); 
+            ctx.closePath(); ctx.fill();
+        } else if(this.n==='貓') {
+            // 貓咪修復：四隻腳連接在身體下方，不分開
+            ctx.fillStyle="#fb923c"; 
+            // 身體
+            ctx.beginPath(); ctx.moveTo(15, 45); ctx.bezierCurveTo(20, 25, 65, 25, 75, 45); ctx.bezierCurveTo(85, 70, 25, 80, 15, 45); ctx.fill(); 
+            // 頭
+            ctx.beginPath(); ctx.arc(22, 40, 20, 0, Math.PI*2); ctx.fill(); 
+            // 耳朵
+            ctx.beginPath(); ctx.moveTo(10, 25); ctx.lineTo(16, 5); ctx.lineTo(24, 25); ctx.fill(); 
+            ctx.beginPath(); ctx.moveTo(26, 25); ctx.lineTo(32, 5); ctx.lineTo(38, 25); ctx.fill();
+            // 面部
+            ctx.fillStyle="#000"; ctx.beginPath(); ctx.arc(16, 38, 2.5, 0, Math.PI*2); ctx.arc(28, 38, 2.5, 0, Math.PI*2); ctx.fill(); 
+            // 尾巴
+            ctx.strokeStyle="#fb923c"; ctx.lineWidth=6; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(70, 50); ctx.quadraticCurveTo(95, 15, 90, 55); ctx.stroke(); 
+            // 四隻小腳 (連接在身體底部，略微重疊)
+            ctx.fillStyle="#fb923c";
+            ctx.beginPath(); ctx.ellipse(28, 72, 6, 9, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(42, 74, 6, 9, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(56, 74, 6, 9, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(70, 72, 6, 9, 0, 0, Math.PI*2); ctx.fill();
+        } else if(this.n==='椅') {
+            ctx.fillStyle="#3b82f6"; ctx.beginPath(); ctx.roundRect(15, 0, 45, 45, 8); ctx.fill(); 
+            ctx.fillStyle="#1e40af"; ctx.beginPath(); ctx.roundRect(10, 45, 55, 12, 4); ctx.fill(); 
+            ctx.fillStyle="#94a3b8"; ctx.fillRect(35, 57, 6, 25); 
+            ctx.fillStyle="#475569"; ctx.fillRect(15, 82, 46, 5); 
+            ctx.fillStyle="#000"; ctx.beginPath(); ctx.arc(20, 92, 5, 0, Math.PI*2); ctx.arc(56, 92, 5, 0, Math.PI*2); ctx.fill(); 
+        } else if(this.n==='火') { 
+            ctx.shadowBlur = 20; ctx.shadowColor = "#f97316"; ctx.lineWidth=22; ctx.strokeStyle="#f97316"; ctx.beginPath(); ctx.ellipse(60, 100, 60, 100, 0, 0, Math.PI*2); ctx.stroke(); 
+            ctx.lineWidth = 7; ctx.strokeStyle = "#ffffff"; ctx.fillStyle = "#fb923c";
+            ctx.font = "bold 36px 'Arial Black', sans-serif"; ctx.textAlign = "center"; 
+            let dS = 1 + Math.sin(frameCount*0.1)*0.1; ctx.save(); ctx.translate(60, 112); ctx.scale(dS, dS); ctx.strokeText("Dream", 0, 0); ctx.fillText("Dream", 0, 0); ctx.restore(); ctx.shadowBlur = 0;
+            for(let i=0; i<10; i++) { 
+                let ang = (frameCount * 0.15 + i * (Math.PI/5)); 
+                ctx.fillStyle=["#ef4444","#f59e0b","#fde047"][i%3]; 
+                ctx.beginPath(); ctx.arc(60 + Math.cos(ang)*65, 100 + Math.sin(ang)*105, 12, 0, Math.PI*2); ctx.fill(); 
+            }
+        } else if(this.n==='堡') {
+            ctx.fillStyle="#fbbf24"; ctx.beginPath(); ctx.ellipse(42, 15, 42, 16, 0, 0, Math.PI, true); ctx.fill(); 
+            ctx.fillStyle="#22c55e"; ctx.fillRect(5, 26, 74, 8); ctx.fillStyle="#fde047"; ctx.fillRect(8, 31, 68, 4); 
+            ctx.fillStyle="#78350f"; ctx.beginPath(); ctx.roundRect(5, 35, 74, 16, 4); ctx.fill(); 
+            ctx.fillStyle="#fbbf24"; ctx.beginPath(); ctx.ellipse(42, 58, 42, 13, 0, 0, Math.PI); ctx.fill(); 
+        } else if(this.n==='雞') {
+            ctx.fillStyle="#92400e"; ctx.beginPath(); ctx.ellipse(20, 18, 26, 18, Math.PI/8, 0, Math.PI*2); ctx.fill(); 
+            ctx.fillStyle="#fff"; ctx.beginPath(); ctx.roundRect(38, 24, 18, 10, 4); ctx.fill(); 
+            ctx.beginPath(); ctx.arc(58, 22, 6, 0, Math.PI*2); ctx.arc(58, 34, 6, 0, Math.PI*2); ctx.fill(); 
+        } else if(this.n==='車') {
+            ctx.fillStyle="#facc15"; ctx.beginPath(); ctx.roundRect(48, 20, 112, 80, 5); ctx.fill(); ctx.beginPath(); ctx.roundRect(0, 48, 50, 52, 10); ctx.fill();
+            ctx.fillStyle="#bae6fd"; ctx.beginPath(); ctx.roundRect(10, 55, 30, 22, 5); ctx.fill(); ctx.fillStyle="#333"; ctx.beginPath(); ctx.arc(42, 100, 18, 0, Math.PI*2); ctx.arc(130, 100, 18, 0, Math.PI*2); ctx.fill(); 
+        } else if(this.n==='印') {
+            ctx.fillStyle="#cbd5e1"; ctx.beginPath(); ctx.roundRect(0, 10, 100, 105, 5); ctx.fill(); ctx.fillStyle="#94a3b8"; ctx.beginPath(); ctx.roundRect(0, 0, 100, 15, 3); ctx.fill(); ctx.fillStyle="#2563eb"; ctx.fillRect(72, 22, 20, 15); ctx.fillStyle="#fff"; ctx.fillRect(15, 40, 70, 3); 
+        } else if(this.n==='桶') {
+            ctx.fillStyle="#3b82f6"; ctx.beginPath(); ctx.moveTo(5, 5); ctx.lineTo(70, 5); ctx.lineTo(60, 75); ctx.lineTo(15, 75); ctx.closePath(); ctx.fill();
+            ctx.strokeStyle="#cbd5e1"; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(37, 5, 25, Math.PI, 0); ctx.stroke();
+        } else { ctx.fillStyle="#cbd5e1"; ctx.beginPath(); ctx.roundRect(0, 0, this.w, this.h, 10); ctx.fill(); }
+        ctx.restore();
+    }
+}
+
+// --- 控制系統 ---
+function startGame() { 
+    unlockAudio();
+    isRunning=true; score=0; frameCount=0; isWin=false; gameSpeed=7.15; obstacles=[]; heartEffects=[]; themeCounter=0; currentTheme='day'; warmupTime=180; sceneProtection=0; uiOverlay.classList.add('hidden'); uiScore.classList.add('hidden'); player.y=height-140; player.vy=0; lastTime=performance.now(); nextSpawn=5; obstacles.push(new Obs(width+100)); 
+}
+
+function gameOver() { 
+    if(!isRunning || isWin || warmupTime > 0 || sceneProtection > 0) return; 
+    isRunning = false; 
+    uiTitle.innerHTML = "透過 Dream 能量圈加持，<br>圓夢秘書就是你！"; 
+    uiScore.innerText = `最後得分：${score}`; 
+    uiScore.classList.remove('hidden'); uiOverlay.classList.remove('hidden'); 
+}
+
+function gameLoop(time) {
+    if(!lastTime) { lastTime = time; requestAnimationFrame(gameLoop); return; }
+    const dt = Math.min((time - lastTime) / (1000/60), 1.1); lastTime = time;
+    ctx.clearRect(0,0,width,height); drawScene(dt);
+    if(isRunning) {
+        frameCount += dt; if(warmupTime > 0) warmupTime -= dt; if(sceneProtection > 0) sceneProtection -= dt;
+        if(Math.floor(frameCount) % 5 === 0) { 
+            score++; scoreBoard.innerText = `SCORE: ${score}`; 
+            if(score > 0 && score % THEME_INTERVAL === 0) {
+                const ts=['day','sunrise','night']; themeCounter=(themeCounter+1)%ts.length; currentTheme=ts[themeCounter]; sceneProtection=120;
+            }
+            if(score >= WIN_SCORE) { isWin=true; isRunning=false; uiTitle.innerHTML="透過 Dream 能量圈加持，<br>圓夢秘書就是你！"; uiScore.innerText=`得分：${score}`; uiScore.classList.remove('hidden'); uiOverlay.classList.remove('hidden'); }
+        }
+        gameSpeed = score >= 5000 ? (baseSpeed * 1.15) + (score/4000) : baseSpeed + (score / 4500);
+        if(frameCount >= nextSpawn) { obstacles.push(new Obs()); let minGap = 45 + gameSpeed * 1.2; nextSpawn = frameCount + minGap + Math.random()*30; }
+        player.update(dt);
+        for(let i=obstacles.length-1; i>=0; i--) {
+            let o=obstacles[i]; o.update(dt); o.draw();
+            let pBox = { x: player.x + 2, y: player.y + 2, w: player.w - 4, h: player.h - 4 };
+            let oBox = { x: o.x + 1, y: o.y + 1, w: o.w - 2, h: o.h - 2 };
+            if (pBox.x < oBox.x + oBox.w && pBox.x + pBox.w > oBox.x && pBox.y < oBox.y + oBox.h && pBox.y + pBox.h > oBox.y) {
+                if (o.isB && !o.hasC) { 
+                    score += o.val; o.hasC = true; playCoinSound(); spawnBonusText(o.x, o.y, `+500！`, "#fbbf24");
+                    for(let k=0; k<25; k++) heartEffects.push({ x: o.x+o.w/2, y: o.y+o.h/2, vx:(Math.random()-0.5)*25, vy:-5-Math.random()*25, size:10+Math.random()*15, opacity:1 });
+                    obstacles.splice(i, 1); continue; 
+                } else if (!o.isB) {
+                    if (warmupTime > 0 || sceneProtection > 0) { obstacles.splice(i, 1); continue; } else { gameOver(); }
+                }
+            }
+            if(o.x < -400) obstacles.splice(i,1);
+        }
+    }
+    for(let i=heartEffects.length-1; i>=0; i--) { let h = heartEffects[i]; h.x += h.vx; h.y += h.vy; h.vy += 0.45; h.opacity -= 0.02; drawHeart(h.x, h.y, Math.max(0.1, h.size), `rgba(255, 215, 0, ${h.opacity})`); if(h.opacity <= 0) heartEffects.splice(i,1); }
+    player.draw(); requestAnimationFrame(gameLoop);
+}
+
+function spawnBonusText(x, y, txt, col) { let e=document.createElement('div'); e.className='bonus-text'; e.innerText=txt; e.style.color=col; e.style.left=x+'px'; e.style.top=y+'px'; container.appendChild(e); setTimeout(()=>e.remove(), 800); }
+function resize() { width=container.clientWidth; height=container.clientHeight; canvas.width=width; canvas.height=height; initBuildings(); }
+window.onload = () => { 
+    resize(); window.addEventListener('resize', resize); 
+    canvas.addEventListener('touchstart', (e) => { player.jump(); e.preventDefault(); }, {passive:false}); 
+    canvas.addEventListener('mousedown', () => { player.jump(); }); 
+    bgmToggle.onclick = (e) => { e.stopPropagation(); unlockAudio(); isMusicOn=!isMusicOn; bgmToggle.innerText=isMusicOn?"🔊 音樂: 開":"🔇 音樂: 關"; }; 
+    requestAnimationFrame(gameLoop); 
+};
+</script>
+</body>
+</html>
